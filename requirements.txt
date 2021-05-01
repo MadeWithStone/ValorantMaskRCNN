@@ -7,6 +7,6 @@ scikit-image
 tensorflow==1.15.2
 keras==2.1.5
 opencv-python
-h5py
+h5py==2.7.1
 imgaug
 IPython[all]

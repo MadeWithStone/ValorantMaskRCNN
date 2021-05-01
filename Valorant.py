@@ -54,6 +54,7 @@ COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
 # through the command line argument --logs
 DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 
+
 ############################################################
 #  Configurations
 ############################################################
@@ -86,16 +87,21 @@ class ValorantConfig(Config):
 
 class ValorantDataset(utils.Dataset):
 
+    def get_class_id(self, source, name):
+        id = next(x["id"] for x in self.class_info if x["source"] == source and x["name"] == name)
+        return id
+
     def load_valorant(self, dataset_dir, subset):
         """Load a subset of the valorant dataset.
         dataset_dir: Root directory of the dataset.
         subset: Subset to load: train or val
         """
 
-
         # Train or validation dataset?
         assert subset in ["train", "val"]
         dataset_dir = os.path.join(dataset_dir, "train")
+
+        resize_width, resize_height = (640, 320)
 
         # Load annotations
         # VGG Image Annotator (up to version 1.6) saves each image in the form:
@@ -162,7 +168,7 @@ class ValorantDataset(utils.Dataset):
 
         # Add classes
         for i in range(len(annotations["label_classes"])):
-            self.add_class("valorant", i+1, annotations["label_classes"][i]["class_name"])
+            self.add_class("valorant", i + 1, annotations["label_classes"][i]["class_name"])
 
         annotations = annotations["images"]
         # The VIA tool saves images in the JSON even if they don't have any
@@ -171,6 +177,12 @@ class ValorantDataset(utils.Dataset):
         # print(json.dumps(annotations[0]))
         # Add images
         for a in annotations:
+            # load_mask() needs the image size to convert polygons to masks.
+            # Unfortunately, VIA doesn't include it in JSON, so we must read
+            # the image. This is only managable since the dataset is tiny.
+            width = a["width"]
+            height = a["height"]
+
             # Get the x, y coordinaets of points of the polygons that make up
             # the outline of each object instance. These are stores in the
             # shape_attributes (see json format above)
@@ -186,8 +198,8 @@ class ValorantDataset(utils.Dataset):
                 outY = []
                 if poly["polygon"]:
                     for coord in poly["polygon"]:
-                        outX.append(coord[0])
-                        outY.append(coord[1])
+                        outX.append(coord[0] / width * resize_width)
+                        outY.append(coord[1] / height * resize_height)
 
                     outPoly = {
                         "all_points_x": outX,
@@ -197,19 +209,19 @@ class ValorantDataset(utils.Dataset):
                     }
                     outPolygons.append(outPoly)
 
-
-            # load_mask() needs the image size to convert polygons to masks.
-            # Unfortunately, VIA doesn't include it in JSON, so we must read
-            # the image. This is only managable since the dataset is tiny.
-            width = a["width"]
-            height = a["height"]
-
+            img_name = a["image_name"].split(".")[0]
+            img_ext = a["image_name"].split(".")[1]
+            resized_path = os.path.join(images_path, "{}_{}x{}.{}".format(img_name, resize_width, resize_height, img_ext))
+            if not os.path.exists(resized_path):
+                img = cv.imread(os.path.join(images_path, a["image_name"]))
+                resized_img = cv.resize(img, (resize_width, resize_height))
+                cv.imwrite(resized_path, resized_img)
 
             self.add_image(
                 "valorant",
                 image_id=a['image_name'],  # use file name as a unique image id
-                path=os.path.join(images_path, a["image_name"]),
-                width=width+1, height=height+1,
+                path=resized_path,
+                width=resize_width + 1, height=resize_height + 1,
                 polygons=outPolygons)
 
     def load_mask(self, image_id):
@@ -234,7 +246,7 @@ class ValorantDataset(utils.Dataset):
             class_ids.append(p["class_id"])
             # Get indexes of pixels inside the polygon and set them to 1
             rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
-            mask[rr, cc, i] = 1 # p["class_id"]
+            mask[rr, cc, i] = 1  # p["class_id"]
 
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
@@ -307,6 +319,7 @@ def get_ax(rows=1, cols=1, size=8):
     """
     _, ax = plt.subplots(rows, cols, figsize=(size * cols, size * rows))
     return ax
+
 
 def color_splash(image, detection):
     """Apply color splash effect.
@@ -437,8 +450,8 @@ if __name__ == '__main__':
     if args.command == "train":
         assert args.dataset, "Argument --dataset is required for training"
     elif args.command == "splash":
-        assert args.image or args.video,\
-               "Provide --image or --video to apply color splash"
+        assert args.image or args.video, \
+            "Provide --image or --video to apply color splash"
 
     print("Weights: ", args.weights)
     print("Dataset: ", args.dataset)
@@ -453,6 +466,8 @@ if __name__ == '__main__':
             # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
             GPU_COUNT = 1
             IMAGES_PER_GPU = 1
+
+
         config = InferenceConfig()
     config.display()
 

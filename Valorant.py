@@ -307,6 +307,23 @@ def train(model):
                 learning_rate=config.LEARNING_RATE,
                 epochs=30,
                 layers='heads')
+    # Convert the model.
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+
+    optimize="Speed"
+    if optimize=='Speed':
+        converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_LATENCY]
+    elif optimize=='Storage':
+        converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]
+    else:
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    #reduce the size of a floating point model by quantizing the weights to float16
+    converter.target_spec.supported_types = [tf.float16]
+    tflite_quant_model = converter.convert()
+
+    # Save the model.
+    with open('/content/drive/MyDrive/ValorantTFLite/model_{:%Y%m%dT%H%M%S}.tflite'.format(datetime.datetime.now()), 'wb') as f:
+      f.write(tflite_quant_model)
 
 
 def get_ax(rows=1, cols=1, size=8):
@@ -330,29 +347,48 @@ def color_splash(image, detection):
     """
     print("Detections: {}".format(detection["class_ids"]))
     mask = detection['masks']
-    # visualize.display_instances(image, detection['rois'], detection['masks'], detection['class_ids'],
-    #                             ["bg", "Enemy", "Friendly", "Self"], detection['scores'], ax=get_ax())
-    # plt.show()
+    #visualize.display_instances(image, detection['rois'], detection['masks'], detection['class_ids'],
+    #                           ["bg", "Enemy", "Friendly", "Self"], detection['scores'], ax=get_ax())
+    #plt.show()
     # Make a grayscale copy of the image. The grayscale copy still
     # has 3 RGB channels, though.
-    gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 255
+    #gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 255
+    gray = image
     # Copy color pixels from the original color image where mask is set
+    color = [np.zeros(image.shape, image.dtype), np.zeros(image.shape, image.dtype), np.zeros(image.shape, image.dtype)]
+    for x in range(color[0].shape[0]):
+      for y in range(color[0].shape[1]):
+        img_colors = np.average(image[x][y])/255
+        color[0][x][y] = (img_colors*255, img_colors*76, img_colors*76)
+        color[1][x][y] = (img_colors*153, img_colors*255, img_colors*51)
+        color[2][x][y] = (img_colors*150, img_colors*200, img_colors*255)
+
     if mask.shape[-1] > 0:
         # We're treating all instances as one, so collapse the mask into one layer
         N = detection["rois"].shape[0]
         for i in range(N):
             m = mask[:, :, i].astype(int)
-            m = cv.inRange(m, 0.1, 2)
+            m = np.reshape(m, (320, 640, 1))
+            # gray = np.where(m, image, gray).astype(np.uint8)
+            #print(detection["class_ids"][i])
+            gray = np.where(m, color[detection["class_ids"][i]-1], gray).astype(np.uint8)
+
+
+            """m = cv.inRange(m, 0.1, 2)
             color = np.zeros(image.shape, image.dtype)
             color[:, :] = (0, 0, 255)
             print("Mask Size: {}; Image Size: {};".format(m.shape, color.shape))
             colorMask = cv.bitwise_and(color, color, mask=m)
             plt.imshow(color)
             plt.show()
-            colored_img = cv.addWeighted(colorMask, 1, image, 1, 0, image)
+            colored_img = cv.addWeighted(colorMask, 1, image, 1, 0, image)"""
 
-        mask = (np.sum(mask, -1, keepdims=True) >= 1)
-        splash = np.where(mask, image, gray).astype(np.uint8)
+        # mask = (np.sum(mask, -1, keepdims=True) >= 1)
+        """enemy_mask = (np.sum(mask, -1, keepdims=True) == 1)
+        friendly_mask = (np.sum(mask, -1, keepdims=True) == 2)
+        self_mask = (np.sum(mask, -1, keepdims=True) == 3)
+        splash = np.where(enemy_mask, image, gray).astype(np.uint8)"""
+        splash = gray
 
 
     else:
@@ -369,18 +405,18 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         print("Running on {}".format(args.image))
         # Read image
         image = skimage.io.imread(args.image)
-        image_resized = resize(image, (image.shape[0] // 4, image.shape[1] // 4),
-                               anti_aliasing=True)
+        resized_img = cv.resize(image, (640, 320))
 
         # Detect objects
-        r = model.detect([image], verbose=1)[0]
+        r = model.detect([resized_img], verbose=1)[0]
         # Color splash
-        splash = color_splash(image, r)
+        splash = color_splash(resized_img, r)
         # Save output
         file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
-        # skimage.io.imsave(file_name, splash)
+        skimage.io.imsave(file_name, splash)
     elif video_path:
         import cv2
+        from time import time
         # Video capture
         vcapture = cv2.VideoCapture(video_path)
         width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -396,21 +432,26 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         count = 0
         success = True
         while success:
-            print("frame: ", count)
+            start = int(round(time() * 1000))
+            #print("frame: ", count)
             # Read next image
             success, image = vcapture.read()
             if success:
                 # OpenCV returns images as BGR, convert to RGB
                 image = image[..., ::-1]
+                resized_img = cv.resize(image, (640, 320))
                 # Detect objects
-                r = model.detect([image], verbose=0)[0]
+                r = model.detect([resized_img], verbose=0)[0]
                 # Color splash
-                splash = color_splash(image, r)
+                splash = color_splash(resized_img, r)
                 # RGB -> BGR to save image to video
                 splash = splash[..., ::-1]
                 # Add image to video writer
                 vwriter.write(splash)
                 count += 1
+            tot_time = int(time() * 1000) - start
+            current_fps = 1000/tot_time
+            print("Frame: {}, Time: {}, FPS: {}".format(count, tot_time, current_fps))
         vwriter.release()
     print("Saved to ", file_name)
 

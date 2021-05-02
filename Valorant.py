@@ -286,7 +286,7 @@ class ValorantDataset(utils.Dataset):
             super(self.__class__, self).image_reference(image_id)
 
 
-def train(model):
+def train(model, epochs):
     """Train the model."""
     # Training dataset.
     dataset_train = ValorantDataset()
@@ -305,10 +305,10 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=30,
+                epochs=30 if not epochs else int(epochs) ,
                 layers='heads')
     # Convert the model.
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    '''converter = tf.lite.TFLiteConverter.from_keras_model(model)
 
     optimize="Speed"
     if optimize=='Speed':
@@ -323,7 +323,7 @@ def train(model):
 
     # Save the model.
     with open('/content/drive/MyDrive/ValorantTFLite/model_{:%Y%m%dT%H%M%S}.tflite'.format(datetime.datetime.now()), 'wb') as f:
-      f.write(tflite_quant_model)
+      f.write(tflite_quant_model)'''
 
 
 def get_ax(rows=1, cols=1, size=8):
@@ -485,6 +485,7 @@ if __name__ == '__main__':
     parser.add_argument('--video', required=False,
                         metavar="path or URL to video",
                         help='Video to apply the color splash effect on')
+    parser.add_argument('--epochs', required=False, metavar="number of epochs for training", help="number of epochs for training")
     args = parser.parse_args()
 
     # Validate arguments
@@ -548,7 +549,7 @@ if __name__ == '__main__':
 
     # Train or evaluate
     if args.command == "train":
-        train(model)
+        train(model, args.epochs)
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
                                 video_path=args.video)

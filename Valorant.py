@@ -286,7 +286,7 @@ class ValorantDataset(utils.Dataset):
             super(self.__class__, self).image_reference(image_id)
 
 
-def train(model, epochs):
+def train(model, epochs, save_dir):
     """Train the model."""
     # Training dataset.
     dataset_train = ValorantDataset()
@@ -306,7 +306,7 @@ def train(model, epochs):
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
                 epochs=30 if not epochs else int(epochs) ,
-                layers='heads')
+                layers='heads', save_dir=save_dir)
     # Convert the model.
     '''converter = tf.lite.TFLiteConverter.from_keras_model(model)
 
@@ -486,6 +486,8 @@ if __name__ == '__main__':
                         metavar="path or URL to video",
                         help='Video to apply the color splash effect on')
     parser.add_argument('--epochs', required=False, metavar="number of epochs for training", help="number of epochs for training")
+    parser.add_argument('--save_path', required=False, metavar="directory for save model",
+                        help="directory for save model")
     args = parser.parse_args()
 
     # Validate arguments
@@ -546,10 +548,12 @@ if __name__ == '__main__':
             "mrcnn_bbox", "mrcnn_mask"])
     else:
         model.load_weights(weights_path, by_name=True)
-
+    save_dir = None
+    if args.save_dir:
+        save_dir = args.save_dir
     # Train or evaluate
     if args.command == "train":
-        train(model, args.epochs)
+        train(model, args.epochs, save_dir)
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
                                 video_path=args.video)

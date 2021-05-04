@@ -2279,7 +2279,7 @@ class MaskRCNN():
             "*epoch*", "{epoch:04d}")
 
     def train(self, train_dataset, val_dataset, learning_rate, epochs, layers,
-              augmentation=None, custom_callbacks=None, no_augmentation_sources=None):
+              augmentation=None, custom_callbacks=None, no_augmentation_sources=None, save_dir=None):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -2378,6 +2378,8 @@ class MaskRCNN():
             workers=workers,
             use_multiprocessing=True,
         )
+        if save_dir:
+            self.keras_model.save(save_dir)
         self.epoch = max(self.epoch, epochs)
 
     def mold_inputs(self, images):

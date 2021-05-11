@@ -47,6 +47,8 @@ from mrcnn import visualize
 
 import matplotlib.pyplot as plt
 
+import tensorflow as tf
+
 # Path to trained weights file
 COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
 
@@ -455,6 +457,28 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         vwriter.release()
     print("Saved to ", file_name)
 
+def convert_to_TFLite(model):
+    """convert model to tflite"""
+    print("### TFLite Conversion : 00 : getting keras model")
+    keras_model = model.keras_model
+    print("### TFLite Conversion : 01 : loading keras model into TFLiteConverter")
+    converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+    print("### TFLite Conversion : 02 : applying custom settings")
+    converter.allow_custom_ops = True
+    converter.experimental_new_converter = True
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS,  # enable TensorFlow Lite ops.
+        tf.lite.OpsSet.SELECT_TF_OPS  # enable TensorFlow ops.
+    ]
+
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    print("### TFLite Conversion : 03 : converting")
+    tflite_model = converter.convert()
+    print("### TFLite Conversion : 04 : writing to file")
+
+    open("model.tflite", "wb").write(tflite_model)
+    print("### TFLite Conversion : 05 : conversion finished")
+
 
 ############################################################
 #  Training
@@ -557,6 +581,8 @@ if __name__ == '__main__':
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
                                 video_path=args.video)
+    elif args.command == "tflite":
+        convert_to_TFLite(model)
     else:
         print("'{}' is not recognized. "
               "Use 'train' or 'splash'".format(args.command))
